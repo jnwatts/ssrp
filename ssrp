@@ -1,0 +1,45 @@
+#!/usr/bin/env python3.7
+
+import socket
+import struct
+import time
+import sys
+
+SSRP_PORT = 1434
+RESPONSE_TIMEOUT_S = 2
+NS_PER_S = 1e9
+
+if len(sys.argv) < 2:
+    print("Usage: ssrp <hostname>")
+    sys.exit(1)
+
+host = sys.argv[1]
+
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sock.bind(("0.0.0.0", SSRP_PORT))
+sock.settimeout(0.1)
+
+bcast_ex = struct.pack("b", 0x02)
+
+sock.sendto(bcast_ex, (host, SSRP_PORT))
+
+timeout_ns = time.time_ns() + RESPONSE_TIMEOUT_S * NS_PER_S
+while time.time_ns() < timeout_ns:
+    try:
+        data,addr = sock.recvfrom(65535+3)
+        svr_resp = data[0]
+        if svr_resp != 0x05:
+            continue
+        resp_size = struct.unpack("H", data[1:3])
+        if resp_size[0] > 1024:
+            continue
+        resp_data = data[3:].decode('ascii', errors='ignore')
+        responses = list(filter(None, resp_data.split(';;')))
+        for r in responses:
+            fields = r.split(';')
+            for f,v in zip(fields[0::2], fields[1::2]):
+                print(f, v)
+            print("--")
+        break
+    except Exception as e:
+        pass
