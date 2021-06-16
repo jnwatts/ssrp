@@ -6,8 +6,13 @@ import time
 import sys
 
 SSRP_PORT = 1434
-RESPONSE_TIMEOUT_S = 2
+INITIAL_RESPONSE_TIMEOUT_S = 5
+ADDITIONAL_RESPONSE_TIMEOUT_S = 1
+TOTAL_RESPONSE_TIMEOUT_S = 15
 NS_PER_S = 1e9
+SVR_RESP_MAXSIZE = 65535
+CLNT_BCAST_EX_ID = 0x2
+SVR_RESP_ID = 0x5
 
 if len(sys.argv) < 2:
     print("Usage: ssrp <hostname>")
@@ -19,19 +24,19 @@ sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sock.bind(("0.0.0.0", SSRP_PORT))
 sock.settimeout(0.1)
 
-bcast_ex = struct.pack("b", 0x02)
+clnt_bcast_ex = struct.pack("b", CLNT_BCAST_EX_ID)
+sock.sendto(clnt_bcast_ex, (host, SSRP_PORT))
 
-sock.sendto(bcast_ex, (host, SSRP_PORT))
-
-timeout_ns = time.time_ns() + RESPONSE_TIMEOUT_S * NS_PER_S
-while time.time_ns() < timeout_ns:
+timeout_ns = int(time.time_ns() + INITIAL_RESPONSE_TIMEOUT_S * NS_PER_S)
+total_timeout_ns = int(time.time_ns() + TOTAL_RESPONSE_TIMEOUT_S * NS_PER_S)
+while time.time_ns() < timeout_ns and time.time_ns() < total_timeout_ns:
     try:
-        data,addr = sock.recvfrom(65535+3)
-        svr_resp = data[0]
-        if svr_resp != 0x05:
+        data,addr = sock.recvfrom(SVR_RESP_MAXSIZE+3)
+        svr_resp_id = data[0]
+        if svr_resp_id != SVR_RESP_ID:
             continue
         resp_size = struct.unpack("H", data[1:3])
-        if resp_size[0] > 1024:
+        if resp_size[0] > SVR_RESP_MAXSIZE:
             continue
         resp_data = data[3:].decode('ascii', errors='ignore')
         responses = list(filter(None, resp_data.split(';;')))
@@ -40,6 +45,6 @@ while time.time_ns() < timeout_ns:
             for f,v in zip(fields[0::2], fields[1::2]):
                 print(f, v)
             print("--")
-        break
+        timeout_ns = int(time.time_ns() + ADDITIONAL_RESPONSE_TIMEOUT_S * NS_PER_S)
     except Exception as e:
         pass
